@@ -16,7 +16,7 @@ ACTIONS = ['up','down','left','right']
 
 # get value function of each state in a trajectory
 def getValue(trajectory): 
-    values = [[0]*5 for i in range(5)] # initialize all states to 0
+    values = [[ [0, 0] for _ in range(5)] for _ in range(5)] # initialize all states to 0
     seen = set() # set of all seen states for first visit
 
     for i, step in enumerate(trajectory):
@@ -27,16 +27,20 @@ def getValue(trajectory):
             r,c = state
             # since all rewards are 0 expect terminal state reward
             # G = gamma^(terminal-i) * reward at terminal
-            values[r][c] = discount_factor**(len(trajectory) - 1 - i) * trajectory[-1][1]
+            values[r][c][0] += discount_factor**(len(trajectory) - 1 - i) * trajectory[-1][1]
+            values[r][c][1] += 1
+    return values
 
 
-def generateTrajectory(): # keep track of all actions and states throughout trajectory
+def generateTrajectory(startrow, startcol): # keep track of all actions and states throughout trajectory
     trajectory = []
-    r = 4
-    c = 0
-    reward = grid[r][c]
-    # need to append first state action pair
-    while reward == 0:        
+    r = startrow
+    c = startcol
+    reward = 0
+
+    while reward == 0:    
+        # update reward
+        reward = grid[r][c]    
         # Random movement selection with weighted probabilities
         upProb = 0.85 if transitions[r][c] == "up" else 0.05
         downProb = 0.85 if transitions[r][c] == "down" else 0.05
@@ -44,7 +48,17 @@ def generateTrajectory(): # keep track of all actions and states throughout traj
         rightProb = 0.85 if transitions[r][c] == "right" else 0.05
         directions = ['left', 'right', 'up', 'down']
         probabilities = [leftProb, rightProb, upProb, downProb]
-        direction = random.choices(directions, weights=probabilities)[0]
+
+        if reward != 0:
+            direction = 'terminate'
+        else:
+            direction = random.choices(directions, weights=probabilities)[0]
+
+        # append to trajectory: state, reward, action
+        if reward == None:
+            trajectory.append(((r,c), 0, direction))
+        else:
+            trajectory.append(((r,c), reward, direction))
         
         # Update position based on random direction
         if direction == 'left' and c > 0 and grid[r][c-1] is not None:
@@ -55,10 +69,6 @@ def generateTrajectory(): # keep track of all actions and states throughout traj
             r -= 1
         elif direction == 'down' and r < 4 and grid[r+1][c] is not None:
             r += 1
-
-        reward = grid[r][c]
-        # update trajectory for time step: state, reward, action
-        trajectory.append(((r, c), reward, direction))
         # If movement is invalid, stay in current position
 
     return trajectory
@@ -195,101 +205,24 @@ def init_uniform_policy():
 
 
 if __name__ == '__main__':
-    # print("part a")
-    # value = [[0]*5 for i in range(5)]
-    # convergence = False
-    # while not convergence:
-    #     value, convergence = getValue(value)
-    #     count += 1
-    # print("value function for all states")
-    # print(value)
-    # print("final converged value for start")
-    # print(value[4][0])
-
-    # print("part b")
-    # total = 0
-    # num_samples = 100
-    # for i in range(num_samples):
-    #     total += generateTrajectory(50)
-    # print("mean: ", total/num_samples)
-
-    # print("part c")
-    # value = [[0]*5 for i in range(5)]
-    # iterations = 150
-    # for i in range(iterations):
-    #     value, convergence = getValue(value)
-    # print("value function for all states")
-    # print(value)
-    # print("final value for start")
-    # print(value[4][0])
-
-    # print("part e")
-    # # get convergence value
-    # value = [[0]*5 for i in range(5)]
-    # convergence = False
-    # errors = []
-    # while not convergence:
-    #     value, convergence = getValue(value)
-
-    # true_value = value
-
-    # value = [[0]*5 for i in range(5)]
-    # convergence = False
-    # errors = []
-    # count = 0
-    # while not convergence:
-    #     value, convergence = getValue(value)
-    #     diff = max(abs(value[r][c] - true_value[r][c])
-    #            for r in range(5) for c in range(5)
-    #            if grid[r][c] is not None)
-    #     errors.append(diff)
-    #     count += 1
-
-    # plt.figure()
-    # plt.plot(range(count), errors, marker='o')
-    # plt.xlabel('Iteration t')
-    # plt.ylabel('Error')
-    # plt.title('Convergence of Approximate Policy Evaluation')
-    # # plt.yscale('log')  # optional: log-scale helps see exponential decay
-    # plt.grid(True)
-    # plt.show()
-
-    # print("part 2")
-    # value, policy = value_iteration()
-    # print("learned policy")
-    # print(policy)
-    # print("value at all states")
-    # print(value)
-
-    print("part 3")
-    # --- Policy Iteration driver ---
-    pi = init_uniform_policy()
-    max_outer_iters = 50 
-    for k in range(max_outer_iters):
-        V = eval_policy(pi, T=50)  # partial eval to speed up iterations
-        new_pi = improve_policy(V)
-        # If first time moving from stochastic to deterministic, just continue
-        if isinstance(pi[0][0], dict):
-            pi = new_pi
-            continue
-        # Check for stability after switched to deterministic
-        if policies_equal(pi, new_pi):
-            pi = new_pi
-            print("policy converged at: ", k, "iterations")
-            break
-        pi = new_pi
-
-    # Final guaranteed-accuracy evaluation:
-    V_final = eval_policy(pi, T=149) 
-
-    # Pretty-print learned policy and values
+    # print("part 1")
+    valueAggregate = [[[0, 0] for _ in range(5)] for _ in range(5)]
     for r in range(5):
-        row = []
         for c in range(5):
-            if grid[r][c] is None:
-                row.append('#')
-            else:
-                row.append(pi[r][c])  # 'up'/'down'/'left'/'right'
-        print(row)
-    for row in V_final:
-        print(row)
+            for sample in range(3):
+                trajectory = generateTrajectory(r,c)
+                values = getValue(trajectory)
+                # loop through all states in the trajectory to update total
+                for trajr in range(5):
+                    for trajc in range(5):
+                        g, n = values[trajr][trajc]
+                        if n != 0:
+                            valueAggregate[trajr][trajc][0] += g
+                            valueAggregate[trajr][trajc][1] += n
+    # aggregate all values
+    valueFunction = [[0]*5 for _ in range(5)]
+    for r in range(5):
+        for c in range(5):
+            g,n = valueAggregate[r][c]
+            valueFunction[r][c] = g / n if n > 0 else 0
+    print(valueFunction)
