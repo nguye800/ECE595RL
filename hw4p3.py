@@ -1,5 +1,6 @@
 import random
 import matplotlib.pyplot as plt
+import numpy as np
 
 grid = [[0,0,0,0,1],
         [0,None,-1,0,0],
@@ -12,6 +13,7 @@ transitions = [["right", "right", "right", "right", "up"],
                 ["up", "down", "down", "down", "up"],
                 ["up", "right", "right", "up", "up"]]
 discount_factor = 0.95
+lr = 0.1
 ACTIONS = ['up','down','left','right']
 
 # get value function of each state in a trajectory
@@ -21,6 +23,8 @@ def getValue(trajectory):
 
     for i, step in enumerate(trajectory):
         state, reward, action = step
+        if i == len(trajectory)-1: # don't count terminal states
+            break
         if state in seen:
             continue
         else:
@@ -29,6 +33,7 @@ def getValue(trajectory):
             # G = gamma^(terminal-i) * reward at terminal
             values[r][c][0] += discount_factor**(len(trajectory) - 1 - i) * trajectory[-1][1]
             values[r][c][1] += 1
+            seen.add(state)
     return values
 
 
@@ -73,139 +78,116 @@ def generateTrajectory(startrow, startcol): # keep track of all actions and stat
 
     return trajectory
 
-# expected value of taking action a from (r,c)
-def step(rr, cc, move):
-    nr, nc = rr, cc
-    if move == 'up':    nr -= 1
-    if move == 'down':  nr += 1
-    if move == 'left':  nc -= 1
-    if move == 'right': nc += 1
-    # blocked or off-grid -> stay
-    if not (0 <= nr < 5 and 0 <= nc < 5) or grid[nr][nc] is None:
-        nr, nc = rr, cc
-    return nr, nc
+def td0(startrow, startcol, value, visitCount):
+    r = startrow
+    c = startcol
+    reward = 0
 
-def expected_next_value(V, r, c, a):
-    probs = {m:0.05 for m in ACTIONS}
-    probs[a] = 0.85
-    ev = 0.0
-    for move, p in probs.items():
-        nr, nc = step(r, c, move)
-        ev += p * V[nr][nc]
-    return ev
+    while reward == 0:      
+        # Random movement selection with weighted probabilities
+        upProb = 0.85 if transitions[r][c] == "up" else 0.05
+        downProb = 0.85 if transitions[r][c] == "down" else 0.05
+        leftProb = 0.85 if transitions[r][c] == "left" else 0.05
+        rightProb = 0.85 if transitions[r][c] == "right" else 0.05
+        directions = ['left', 'right', 'up', 'down']
+        probabilities = [leftProb, rightProb, upProb, downProb]
 
-def next_value(prev, r, c, a):
-    # absorbing transitions for special cells
-    if grid[r][c] in (1, -1) or grid[r][c] is None:
-        return prev[r][c]  # stay
+        direction = random.choices(directions, weights=probabilities)[0]
+        
+        # Update position based on random direction
+        nr,nc = r,c
+        if direction == 'left' and c > 0 and grid[r][c-1] is not None:
+            nc -= 1
+        elif direction == 'right' and c < 4 and grid[r][c+1] is not None:
+            nc += 1
+        elif direction == 'up' and r > 0 and grid[r-1][c] is not None:
+            nr -= 1
+        elif direction == 'down' and r < 4 and grid[r+1][c] is not None:
+            nr += 1
+        # If movement is invalid, stay in current position
 
-    return expected_next_value(prev, r, c, a)
+        # update value function for that state
+        reward = grid[nr][nc]
+        value[r][c] += lr * (reward + discount_factor*value[nr][nc] - value[r][c])
+        visitCount[r][c] += 1
+        r,c = nr,nc
 
-def value_iteration(T=149):
-    V = [[0.0]*5 for _ in range(5)]
-    for _ in range(T):
-        newV = [[0.0]*5 for _ in range(5)]
-        for r in range(5):
-            for c in range(5):
-                if grid[r][c] is None:
-                    continue
-                reward = grid[r][c] or 0
-                if grid[r][c] in (1, -1):       # absorbing reward cells
-                    newV[r][c] = reward + discount_factor * V[r][c]
-                else:
-                    best = max(next_value(V, r, c, a) for a in ACTIONS)
-                    newV[r][c] = reward + discount_factor * best
-        V = newV
-    # greedy policy extraction
-    policy = [['']*5 for _ in range(5)]
+def checkNumVisits(visitCount, minVisits):
     for r in range(5):
         for c in range(5):
-            if grid[r][c] is None:
-                policy[r][c] = None
-            elif grid[r][c] in (1,-1):
-                policy[r][c] = 'stay'
-            else:
-                q = {a: next_value(V, r, c, a) for a in ACTIONS}
-                policy[r][c] = max(q, key=q.get)
-    return V, policy
-
-def eval_policy(pi, T):
-    """Iterative policy evaluation for T sweeps from V0=0."""
-    V = [[0.0]*5 for _ in range(5)]
-    for _ in range(T):
-        newV = [[0.0]*5 for _ in range(5)]
-        for r in range(5):
-            for c in range(5):
-                if grid[r][c] is None:
-                    continue
-                reward = grid[r][c] or 0.0
-                # policy is a distribution over actions in normal cells
-                if isinstance(pi[r][c], dict):
-                    ev = 0.0
-                    for a, pa in pi[r][c].items():
-                        ev += pa * expected_next_value(V, r, c, a)
-                    newV[r][c] = reward + discount_factor * ev
-                else:
-                    # deterministic label treat as prob 1 on that action
-                    a = pi[r][c]
-                    ev = expected_next_value(V, r, c, a)
-                    newV[r][c] = reward + discount_factor * ev
-        V = newV
-    return V
-
-def improve_policy(V):
-    """Greedy improvement: argmax_a E[r + gamma V(s')]."""
-    new_pi = [[None]*5 for _ in range(5)]
-    policy_stable = True
-    for r in range(5):
-        for c in range(5):
-            if grid[r][c] is None:
-                continue
-            reward = grid[r][c] or 0.0
-            # compute Q(s,a) = r(s) + gamma * E[V(s') | a]
-            q_vals = {a: reward + discount_factor * expected_next_value(V, r, c, a) for a in ACTIONS}
-            best_a = max(q_vals, key=q_vals.get)
-            # if the old policy had multiple actions (stochastic), we still switch to deterministic best
-            new_pi[r][c] = best_a
-    return new_pi
-
-def init_uniform_policy():
-    """π0(a|s)=0.25 for each action in non-wall cells."""
-    pi = [[None]*5 for _ in range(5)]
-    for r in range(5):
-        for c in range(5):
-            if grid[r][c] is None:
-                continue
-            pi[r][c] = {a: 0.25 for a in ACTIONS}
-    return pi
-
-def policies_equal(pi1, pi2):
-    for r in range(5):
-        for c in range(5):
-            if grid[r][c] is None:
-                continue
-            # treat dict vs str comparison carefully
-            a1 = pi1[r][c]
-            a2 = pi2[r][c]
-            if isinstance(a1, dict) or isinstance(a2, dict):
-                return False  # once we improve, we switch to deterministic
-            if a1 != a2:
+            if grid[r][c] == 0 and visitCount[r][c] < minVisits:
                 return False
     return True
 
-def init_uniform_policy():
-    """π0(a|s)=0.25 for each action in non-wall cells."""
-    pi = [[None]*5 for _ in range(5)]
+def getReward():
+    reward = [[0]*5 for _ in range(5)]
+
     for r in range(5):
         for c in range(5):
-            if grid[r][c] is None:
+            if grid[r][c] != 0:
                 continue
-            pi[r][c] = {a: 0.25 for a in ACTIONS}
-    return pi
+            # Random movement selection with weighted probabilities
+            upProb = 0.85 if transitions[r][c] == "up" else 0.05
+            downProb = 0.85 if transitions[r][c] == "down" else 0.05
+            leftProb = 0.85 if transitions[r][c] == "left" else 0.05
+            rightProb = 0.85 if transitions[r][c] == "right" else 0.05
+            
+            if c > 0 and grid[r][c-1] is not None:
+                reward[r][c] += leftProb * grid[r][c-1]
+            else:
+                reward[r][c] += leftProb * grid[r][c]
+            if c < 4 and grid[r][c+1] is not None:
+                reward[r][c] += rightProb * grid[r][c+1]
+            else:
+                reward[r][c] += rightProb * grid[r][c]
+            if r > 0 and grid[r-1][c] is not None:
+                reward[r][c] += upProb * grid[r-1][c]
+            else:
+                reward[r][c] += upProb * grid[r][c]
+            if r < 4 and grid[r+1][c] is not None:
+                reward[r][c] += downProb * grid[r+1][c]
+            else:
+                reward[r][c] += downProb * grid[r][c]
 
+    return reward
+
+def getTransition():
+    # up down left right
+    # rows = starting
+    # column = ending
+    P_pi = np.zeros((25,25))
+
+    for r in range(5):
+        for c in range(5):
+            if grid[r][c] != 0:
+                continue
+            # Random movement selection with weighted probabilities
+            upProb = 0.85 if transitions[r][c] == "up" else 0.05
+            downProb = 0.85 if transitions[r][c] == "down" else 0.05
+            leftProb = 0.85 if transitions[r][c] == "left" else 0.05
+            rightProb = 0.85 if transitions[r][c] == "right" else 0.05
+
+            if c > 0 and grid[r][c-1] is not None:
+                P_pi[r*5 + c][r*5 + c-1] = leftProb
+            else:
+                P_pi[r*5 + c][r*5 + c] += leftProb
+            if c < 4 and grid[r][c+1] is not None:
+                P_pi[r*5 + c][r*5 + c+1] = rightProb
+            else:
+                P_pi[r*5 + c][r*5 + c] += rightProb
+            if r > 0 and grid[r-1][c] is not None:
+                P_pi[r*5 + c][(r-1)*5 + c] = upProb
+            else:
+                P_pi[r*5 + c][r*5 + c] += upProb
+            if r < 4 and grid[r+1][c] is not None:
+                P_pi[r*5 + c][(r+1)*5 + c] = downProb
+            else:
+                P_pi[r*5 + c][r*5 + c] += downProb
+
+    return P_pi
 
 if __name__ == '__main__':
-    # print("part 1")
+    print("part 1")
     valueAggregate = [[[0, 0] for _ in range(5)] for _ in range(5)]
     for r in range(5):
         for c in range(5):
@@ -226,3 +208,80 @@ if __name__ == '__main__':
             g,n = valueAggregate[r][c]
             valueFunction[r][c] = g / n if n > 0 else 0
     print(valueFunction)
+
+    print("part 2")
+    value = [[0]*5 for _ in range(5)]
+    visitCount = [[0]*5 for _ in range(5)]
+
+    while not checkNumVisits(visitCount, 50):
+        row = random.randrange(0,5)
+        col = random.randrange(0,5)
+        while(grid[row][col] != 0):
+            row = random.randrange(0,5)
+            col = random.randrange(0,5)
+
+        td0(row, col, value, visitCount)
+    print(value)
+
+    print("part 3")
+    reward = getReward()
+    P_pi = getTransition()
+    r_vec = np.array(reward).flatten()
+    V_N = np.linalg.inv(np.eye(25) - discount_factor * P_pi) @ r_vec
+    print(V_N)
+
+    print("part4")
+    reward = getReward()
+    P_pi = getTransition()
+    r_vec = np.array(reward).flatten()
+    v_true = np.linalg.inv(np.eye(25) - discount_factor * P_pi) @ r_vec
+
+    tdValue = [[0]*5 for _ in range(5)]
+    mcValue_helper = [[[0, 0] for _ in range(5)] for _ in range(5)]
+    mcValue = [[0]*5 for _ in range(5)]
+    visitCount = [[0]*5 for _ in range(5)]
+
+    mc_error = []
+    td_error = []
+    episodes = 1000
+    for i in range(episodes):
+        row = random.randrange(0,5)
+        col = random.randrange(0,5)
+        while(grid[row][col] != 0):
+            row = random.randrange(0,5)
+            col = random.randrange(0,5)
+
+        td0(row, col, tdValue, visitCount)
+    
+        trajectory = generateTrajectory(row, col)
+        values = getValue(trajectory)
+        # loop through all states in the trajectory to update total
+        for trajr in range(5):
+            for trajc in range(5):
+                g, n = values[trajr][trajc]
+                if n != 0:
+                    mcValue_helper[trajr][trajc][0] += g
+                    mcValue_helper[trajr][trajc][1] += n
+        for r in range(5):
+            for c in range(5):
+                g,n = mcValue_helper[r][c]
+                mcValue[r][c] = g / n if n > 0 else 0
+
+        tderror = np.linalg.norm(np.array(tdValue).flatten() - v_true.flatten())
+        mcerror = np.linalg.norm(np.array(mcValue).flatten() - v_true.flatten())
+        td_error.append(tderror)
+        mc_error.append(mcerror)
+
+    plt.plot(range(episodes), mc_error, label="Monte Carlo")
+    plt.plot(range(episodes), td_error, label="TD(0)")
+    plt.xlabel("Episodes")
+    plt.ylabel("Error")
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    
+
+
+
+
