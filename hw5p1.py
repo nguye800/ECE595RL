@@ -110,4 +110,4 @@ if __name__ == "__main__":
     print("Off-policy MC (weighted  IS):", V_hat_weighted)
 
     print("Part 4")
-    
+    print("Error between Estimated MC (Weighted) and True Value Function: ", abs(V_hat_weighted - value_target[0]))
