@@ -1,6 +1,7 @@
 import random
 import matplotlib.pyplot as plt
 import numpy as np
+import numpy as np
 
 grid = [[0,0,0,0,1],
         [0,None,-1,0,0],
@@ -14,6 +15,7 @@ transitions = [["right", "right", "right", "right", "up"],
                 ["up", "right", "right", "up", "up"]]
 discount_factor = 0.95
 lr = 0.1
+lr = 0.1
 ACTIONS = ['up','down','left','right']
 
 # get value function of each state in a trajectory
@@ -25,6 +27,8 @@ def getValue(trajectory):
         state, reward, action = step
         if i == len(trajectory)-1: # don't count terminal states
             break
+        if i == len(trajectory)-1: # don't count terminal states
+            break
         if state in seen:
             continue
         else:
@@ -33,6 +37,7 @@ def getValue(trajectory):
             # G = gamma^(terminal-i) * reward at terminal
             values[r][c][0] += discount_factor**(len(trajectory) - 1 - i) * trajectory[-1][1]
             values[r][c][1] += 1
+            seen.add(state)
             seen.add(state)
     return values
 
@@ -113,8 +118,50 @@ def td0(startrow, startcol, value, visitCount):
         r,c = nr,nc
 
 def checkNumVisits(visitCount, minVisits):
+def td0(startrow, startcol, value, visitCount):
+    r = startrow
+    c = startcol
+    reward = 0
+
+    while reward == 0:      
+        # Random movement selection with weighted probabilities
+        upProb = 0.85 if transitions[r][c] == "up" else 0.05
+        downProb = 0.85 if transitions[r][c] == "down" else 0.05
+        leftProb = 0.85 if transitions[r][c] == "left" else 0.05
+        rightProb = 0.85 if transitions[r][c] == "right" else 0.05
+        directions = ['left', 'right', 'up', 'down']
+        probabilities = [leftProb, rightProb, upProb, downProb]
+
+        direction = random.choices(directions, weights=probabilities)[0]
+        
+        # Update position based on random direction
+        nr,nc = r,c
+        if direction == 'left' and c > 0 and grid[r][c-1] is not None:
+            nc -= 1
+        elif direction == 'right' and c < 4 and grid[r][c+1] is not None:
+            nc += 1
+        elif direction == 'up' and r > 0 and grid[r-1][c] is not None:
+            nr -= 1
+        elif direction == 'down' and r < 4 and grid[r+1][c] is not None:
+            nr += 1
+        # If movement is invalid, stay in current position
+
+        # update value function for that state
+        reward = grid[nr][nc]
+        value[r][c] += lr * (reward + discount_factor*value[nr][nc] - value[r][c])
+        visitCount[r][c] += 1
+        r,c = nr,nc
+
+def checkNumVisits(visitCount, minVisits):
     for r in range(5):
         for c in range(5):
+            if grid[r][c] == 0 and visitCount[r][c] < minVisits:
+                return False
+    return True
+
+def getReward():
+    reward = [[0]*5 for _ in range(5)]
+
             if grid[r][c] == 0 and visitCount[r][c] < minVisits:
                 return False
     return True
@@ -125,7 +172,39 @@ def getReward():
     for r in range(5):
         for c in range(5):
             if grid[r][c] != 0:
+            if grid[r][c] != 0:
                 continue
+            # Random movement selection with weighted probabilities
+            upProb = 0.85 if transitions[r][c] == "up" else 0.05
+            downProb = 0.85 if transitions[r][c] == "down" else 0.05
+            leftProb = 0.85 if transitions[r][c] == "left" else 0.05
+            rightProb = 0.85 if transitions[r][c] == "right" else 0.05
+            
+            if c > 0 and grid[r][c-1] is not None:
+                reward[r][c] += leftProb * grid[r][c-1]
+            else:
+                reward[r][c] += leftProb * grid[r][c]
+            if c < 4 and grid[r][c+1] is not None:
+                reward[r][c] += rightProb * grid[r][c+1]
+            else:
+                reward[r][c] += rightProb * grid[r][c]
+            if r > 0 and grid[r-1][c] is not None:
+                reward[r][c] += upProb * grid[r-1][c]
+            else:
+                reward[r][c] += upProb * grid[r][c]
+            if r < 4 and grid[r+1][c] is not None:
+                reward[r][c] += downProb * grid[r+1][c]
+            else:
+                reward[r][c] += downProb * grid[r][c]
+
+    return reward
+
+def getTransition():
+    # up down left right
+    # rows = starting
+    # column = ending
+    P_pi = np.zeros((25,25))
+
             # Random movement selection with weighted probabilities
             upProb = 0.85 if transitions[r][c] == "up" else 0.05
             downProb = 0.85 if transitions[r][c] == "down" else 0.05
@@ -160,7 +239,32 @@ def getTransition():
     for r in range(5):
         for c in range(5):
             if grid[r][c] != 0:
+            if grid[r][c] != 0:
                 continue
+            # Random movement selection with weighted probabilities
+            upProb = 0.85 if transitions[r][c] == "up" else 0.05
+            downProb = 0.85 if transitions[r][c] == "down" else 0.05
+            leftProb = 0.85 if transitions[r][c] == "left" else 0.05
+            rightProb = 0.85 if transitions[r][c] == "right" else 0.05
+
+            if c > 0 and grid[r][c-1] is not None:
+                P_pi[r*5 + c][r*5 + c-1] = leftProb
+            else:
+                P_pi[r*5 + c][r*5 + c] += leftProb
+            if c < 4 and grid[r][c+1] is not None:
+                P_pi[r*5 + c][r*5 + c+1] = rightProb
+            else:
+                P_pi[r*5 + c][r*5 + c] += rightProb
+            if r > 0 and grid[r-1][c] is not None:
+                P_pi[r*5 + c][(r-1)*5 + c] = upProb
+            else:
+                P_pi[r*5 + c][r*5 + c] += upProb
+            if r < 4 and grid[r+1][c] is not None:
+                P_pi[r*5 + c][(r+1)*5 + c] = downProb
+            else:
+                P_pi[r*5 + c][r*5 + c] += downProb
+
+    return P_pi
             # Random movement selection with weighted probabilities
             upProb = 0.85 if transitions[r][c] == "up" else 0.05
             downProb = 0.85 if transitions[r][c] == "down" else 0.05
@@ -187,6 +291,7 @@ def getTransition():
     return P_pi
 
 if __name__ == '__main__':
+    print("part 1")
     print("part 1")
     valueAggregate = [[[0, 0] for _ in range(5)] for _ in range(5)]
     for r in range(5):
